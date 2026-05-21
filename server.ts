@@ -78,6 +78,26 @@ async function startServer() {
 
   const phaseSequence: (Room['phase'])[] = ['lobby', 'rating', 'rating-review', 'positives', 'walkthrough', 'improvements', 'discussion', 'final-actions', 'summary'];
 
+  const sanitizeRoom = (room: Room): any => {
+    const sanitized = JSON.parse(JSON.stringify(room));
+    
+    if (room.phase === 'rating') {
+      sanitized.ratings = []; // Hide ratings during voting
+    } else if (room.phase === 'positives') {
+      // Hide positive suggestions during voting
+      sanitized.suggestions = room.suggestions.filter(s => s.type !== 'positive');
+    } else if (room.phase === 'improvements') {
+      // Hide improvement suggestions during voting
+      sanitized.suggestions = room.suggestions.filter(s => s.type !== 'improvement');
+    }
+    
+    return sanitized;
+  };
+
+  const broadcastRoom = (roomId: string, room: Room) => {
+    io.to(roomId).emit("room-updated", sanitizeRoom(room));
+  };
+
   io.on("connection", (socket) => {
     socket.on("create-room", ({ name, sprintName }) => {
       const roomId = nanoid(6).toUpperCase();
@@ -97,7 +117,7 @@ async function startServer() {
       };
       rooms.set(roomId, room);
       socket.join(roomId);
-      socket.emit("room-joined", { room, roomId, userId: socket.id });
+      socket.emit("room-joined", { room: sanitizeRoom(room), roomId, userId: socket.id });
     });
 
     socket.on("join-room", ({ roomId, name, userId }) => {
@@ -123,8 +143,8 @@ async function startServer() {
       
       room.lastActivity = Date.now();
       socket.join(room.id);
-      io.to(room.id).emit("room-updated", room);
-      socket.emit("room-joined", { room, roomId: room.id, userId: socket.id });
+      broadcastRoom(room.id, room);
+      socket.emit("room-joined", { room: sanitizeRoom(room), roomId: room.id, userId: socket.id });
     });
 
     socket.on("set-phase", ({ roomId, phase }) => {
@@ -148,7 +168,7 @@ async function startServer() {
         }
         
         room.lastActivity = Date.now();
-        io.to(roomId).emit("room-updated", room);
+        broadcastRoom(roomId, room);
       }
     });
 
@@ -166,7 +186,7 @@ async function startServer() {
           if (['rating', 'positives', 'improvements'].includes(prevPhase)) {
             room.participants.forEach(p => p.hasSubmitted = false);
           }
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -185,7 +205,7 @@ async function startServer() {
           room.timerRemaining = Math.max(0, room.timerEnd - now);
           room.isTimerPaused = true;
         }
-        io.to(roomId).emit("room-updated", room);
+        broadcastRoom(roomId, room);
       }
     });
 
@@ -197,7 +217,7 @@ async function startServer() {
           room.ratings.push(rating);
           p.hasSubmitted = true;
           if (room.participants.every(p => p.hasSubmitted)) room.phase = 'rating-review';
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -217,7 +237,7 @@ async function startServer() {
             room.phase = 'walkthrough';
             room.timerEnd = null;
           }
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -237,7 +257,7 @@ async function startServer() {
             room.phase = 'discussion';
             room.timerEnd = null;
           }
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -251,7 +271,7 @@ async function startServer() {
           const groupId = target.groupId || target.id;
           dragged.groupId = groupId;
           target.groupId = groupId;
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -269,7 +289,7 @@ async function startServer() {
             if (idx === -1) item.votes.push(socket.id);
             else item.votes.splice(idx, 1);
           });
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -278,7 +298,7 @@ async function startServer() {
       const room = rooms.get(roomId);
       if (room && room.hostId === socket.id) {
         room.actionItems.push({ id: nanoid(), text, owners, completed: false });
-        io.to(roomId).emit("room-updated", room);
+        broadcastRoom(roomId, room);
       }
     });
 
@@ -289,7 +309,7 @@ async function startServer() {
         if (suggestion) {
           suggestion.tag = tag;
           room.lastActivity = Date.now();
-          io.to(roomId).emit("room-updated", room);
+          broadcastRoom(roomId, room);
         }
       }
     });
@@ -299,7 +319,7 @@ async function startServer() {
       if (room && room.hostId === socket.id) {
         room.sprintName = sprintName;
         room.lastActivity = Date.now();
-        io.to(roomId).emit("room-updated", room);
+        broadcastRoom(roomId, room);
       }
     });
 
@@ -308,7 +328,7 @@ async function startServer() {
       if (room && room.hostId === socket.id) {
         room.participants = room.participants.filter(p => p.id !== participantId);
         room.lastActivity = Date.now();
-        io.to(roomId).emit("room-updated", room);
+        broadcastRoom(roomId, room);
         io.to(participantId).emit("kicked");
       }
     });
