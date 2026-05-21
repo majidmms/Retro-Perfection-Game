@@ -1,0 +1,6 @@
+{
+  "name": "Perfection Game Retro",
+  "description": "A real-time multiplayer retrospective tool for Scrum teams following the Perfection Game format.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
